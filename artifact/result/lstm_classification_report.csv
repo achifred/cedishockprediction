@@ -1,0 +1,10 @@
+classification_reports,roc_auc_scores,auc_score
+"                  precision    recall  f1-score   support
+
+  safe window(0)       0.88      0.96      0.92       321
+shock warning(1)       0.00      0.00      0.00        44
+
+        accuracy                           0.85       365
+       macro avg       0.44      0.48      0.46       365
+    weighted avg       0.77      0.85      0.81       365
+",0.18514585103370151,0.07022271806506834
