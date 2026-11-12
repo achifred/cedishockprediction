@@ -202,6 +202,13 @@ FORMATTED_MACRO_DATA_FILES_CONFIG = [
     "file_path" : "data/interim/formatted_treasury_bill_rate.csv",
     "columns_to_keep" : [  "tbill","available_date" ] ,
     "columns_to_rename" : None
+  },
+{
+    "name" : "Debt to GDP Ratio" ,
+    "file_path" : "data/interim/formatted_debt_to_gdp.csv",
+    "columns_to_keep" : [  "external-debt-to-gdp","domestic-debt-to-gdp","total-public-debt-to-gdp", "available_date",
+                           ] ,
+    "columns_to_rename" : None
   }
 ]
 
@@ -232,4 +239,84 @@ FORMATTED_NON_MACRO_DATA_FILES_CONFIG = [
       "columns_to_rename" : {"mid-rate":"usdgh_exchange_rate"}
   }
 
+]
+
+
+DEBT_TO_GDP_DATA_FILES_CONFIG = [
+{
+        "file_path":"data/raw/2008-Debt-Data.xlsx",
+      "year":"2008"
+    },
+{
+        "file_path":"data/raw/2009-Debt-Data.xlsx",
+      "year":"2009"
+    },
+{
+        "file_path":"data/raw/2010-Debt-Data.xlsx",
+      "year":"2010"
+    },
+{
+        "file_path":"data/raw/2011-Debt-Data.xlsx",
+      "year":"2011"
+    },
+{
+        "file_path":"data/raw/2012-Debt-Data.xlsx",
+      "year":"2012"
+    },
+{
+        "file_path":"data/raw/2013-Debt-Data.xlsx",
+      "year":"2013"
+    },
+{
+        "file_path":"data/raw/2014-Debt-Data.xlsx",
+      "year":"2014"
+    },
+{
+        "file_path":"data/raw/2015-Debt-Data.xlsx",
+      "year":"2015"
+    },
+{
+        "file_path":"data/raw/2016-Debt-Data.xlsx",
+      "year":"2016"
+    },
+    {
+        "file_path":"data/raw/2017-Debt-Data.xlsx",
+      "year":"2017"
+    },
+{
+        "file_path":"data/raw/2018-Debt-Data.xlsx",
+      "year":"2018"
+    },
+{
+        "file_path":"data/raw/2019-Debt-Data.xlsx",
+      "year":"2019"
+    },
+{
+        "file_path":"data/raw/2020-Debt-Data.xlsx",
+      "year":"2020"
+    },
+{
+        "file_path":"data/raw/2021-Debt-Data.xlsx",
+      "year":"2021"
+    },
+{
+        "file_path":"data/raw/2023-Debt-Data.xlsx",
+      "year":"2023"
+    },
+{
+        "file_path":"data/raw/2024-Debt-Data.xlsx",
+      "year":"2024"
+    },
+{
+        "file_path":"data/raw/2025-Debt-Data.xlsx",
+      "year":"2025"
+    },
+{
+        "file_path":"data/raw/2026-Debt-Data.xlsx",
+      "year":"2026"
+    },
+{
+        "file_path":"data/raw/2022-Debt-Data.csv",
+      "year":"2022"
+    },
 ]

@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+
 from src.utils.utils import convert_volume , save_to_csv , slice_data
 
 # ============================================================
@@ -14,19 +15,17 @@ DATE_COL = "date"
 FX_COL = "usdgh_exchange_rate"
 
 # Forecast window:
-# 10 trading days ≈ 2 weeks
-# 20 trading days ≈ 4 weeks
-MIN_HORIZON = 10
-MAX_HORIZON = 20
+#  2 weeks
+#  4 weeks
+START_HORIZON = 2
+END_HORIZON = 4
 
-# Economic shock threshold
-ABSOLUTE_SHOCK_THRESHOLD = 0.05   # 5% depreciation
+SHOCK_THRESHOLD = 0.03
 
-# Volatility-adjusted threshold
-VOLATILITY_MULTIPLIER = 2.0
-
-# Historical volatility window
-VOL_WINDOW = 60
+CRUDE_CLOSE_PRICE_COL = "crude_close_price"
+CRUDE_VOLUME_COL = "crude_volume"
+GOLD_CLOSE_PRICE_COL = "gold_close_price"
+GOLD_VOLUME_COL = "gold_volume"
 
 
 # ============================================================
@@ -48,6 +47,15 @@ def prepare_data(df):
     # Set date index
     df = df.set_index(DATE_COL)
 
+    df[ CRUDE_CLOSE_PRICE_COL ] = df[ CRUDE_CLOSE_PRICE_COL ].astype( str ).str.replace( ',' , '' , regex = False ).astype(
+      float )
+    df[ GOLD_CLOSE_PRICE_COL ] = df[ GOLD_CLOSE_PRICE_COL ].astype( str ).str.replace( ',' , '' , regex = False ).astype(
+      float )
+    df[ CRUDE_VOLUME_COL ] = df[ CRUDE_VOLUME_COL ].apply( convert_volume )
+    df[ GOLD_VOLUME_COL ] = df[ GOLD_VOLUME_COL ].apply( convert_volume )
+
+    df[ FX_COL ] = pd.to_numeric( df[ FX_COL ] , errors = 'coerce' )
+
     return df
 
 
@@ -58,7 +66,6 @@ def prepare_data(df):
 def create_fx_features(df):
 
     df = df.copy()
-    df[ FX_COL ] = pd.to_numeric( df[ FX_COL ] , errors = 'coerce' )
 
     fx = df[FX_COL]
 
@@ -66,116 +73,39 @@ def create_fx_features(df):
     # --------------------------------------------------------
     # Log return
     # --------------------------------------------------------
+    # log_exchange_rate = np.log(fx)
+    # df["usd_ghs_log_return_4w"] = np.log( fx / fx.shift( 4 ) )
+    df[ "usd_ghs_return_1w" ] = np.log( fx / fx.shift( 1 ) )
 
-    df["usd_ghs_log_return_1d"] = np.log(fx / fx.shift(1))
 
     # --------------------------------------------------------
     # Percentage returns
     # --------------------------------------------------------
 
-    for window in [3, 5, 10, 20, 30]:
-
-        df[f"usd_ghs_return_{window}d"] = (
-            fx / fx.shift(window) - 1
-        )
-
-    # --------------------------------------------------------
-    # Rolling volatility
-    # --------------------------------------------------------
-
-    # daily_return = df["usd_ghs_log_return_1d"]
+    # for window in [4]:
     #
-    # for window in [5, 10, 20, 30, 60]:
-    #
-    #     df[f"usd_ghs_vol_{window}d"] = (
-    #         daily_return
-    #         .rolling(window)
-    #         .std()
+    #     df[f"usd_ghs_return_{window}w"] = (
+    #         fx / fx.shift(window) - 1
     #     )
 
-    # --------------------------------------------------------
-    # Volatility acceleration
-    # --------------------------------------------------------
 
-    # df["usd_ghs_vol_ratio_10_60"] = (
-    #     df["usd_ghs_vol_10d"] /
-    #     df["usd_ghs_vol_60d"]
-    # )
-    #
-    # df["usd_ghs_vol_ratio_20_60"] = (
-    #     df["usd_ghs_vol_20d"] /
-    #     df["usd_ghs_vol_60d"]
-    # )
-
-    # --------------------------------------------------------
-    # Moving averages
-    # --------------------------------------------------------
-
-    for window in [10, 20, 30]:
-
-        df[f"usd_ghs_ma_{window}d"] = (
-            fx.rolling(window).mean()
-        )
-
-    # --------------------------------------------------------
-    # Distance from moving averages
-    # --------------------------------------------------------
-
-    for window in [20]:
-
-        df[f"usd_ghs_ma_distance_{window}d"] = (
-            fx / df[f"usd_ghs_ma_{window}d"] - 1
-        )
-
-    # --------------------------------------------------------
-    # Z-scores
-    # --------------------------------------------------------
-
-    # for window in [20, 60]:
-    #
-    #     rolling_mean = fx.rolling(window).mean()
-    #     rolling_std = fx.rolling(window).std()
-    #
-    #     df[f"usd_ghs_zscore_{window}d"] = (
-    #         (fx - rolling_mean) / rolling_std
-    #     )
 
     # --------------------------------------------------------
     # Depreciation acceleration
     # --------------------------------------------------------
 
-    df["usd_ghs_depreciation_acceleration"] = (
-        df["usd_ghs_return_5d"] -
-        df["usd_ghs_return_20d"]
-    )
+    # df["usd_ghs_depreciation_acceleration"] = (
+    #     df["usd_ghs_return_5w"] -
+    #     df["usd_ghs_return_20w"]
+    # )
 
     # --------------------------------------------------------
     # Recent maximum depreciation
     # --------------------------------------------------------
-
-    df["usd_ghs_max_5d_depreciation"] = (
-        fx / fx.rolling(5).min() - 1
+    # df[ "usd_ghs_max_10w_depreciation" ] = (fx / fx.rolling( 14 ).min()) - 1
+    df[ "usd_ghs_12w_distance_from_min" ] = (
+      fx / fx.rolling( 12 ).min() - 1
     )
-
-    df["usd_ghs_max_20d_depreciation"] = (
-        fx / fx.rolling(20).min() - 1
-    )
-
-    # --------------------------------------------------------
-    # Number of recent depreciating days
-    # --------------------------------------------------------
-
-    # df["usd_ghs_depreciation_days_5d"] = (
-    #     (daily_return > 0)
-    #     .rolling(5)
-    #     .sum()
-    # )
-    #
-    # df["usd_ghs_depreciation_days_10d"] = (
-    #     (daily_return > 0)
-    #     .rolling(10)
-    #     .sum()
-    # )
 
     return df
 
@@ -193,34 +123,11 @@ def create_inflation_features(df):
         "non_food_inf"
     ]
 
-    for col in inflation_cols:
+    for col in inflation_cols :
+      if col in df.columns :
+        df[ f"{col}_change" ] = df[ col ].diff(  )
 
-        if col not in df.columns:
-            continue
 
-        # Change from previous available observation
-        df[f"{col}_change"] = df[col].diff()
-
-        # Longer-term changes
-        # df[f"{col}_3period_change"] = (
-        #     df[col] - df[col].shift(3)
-        # )
-        #
-        # df[f"{col}_6period_change"] = (
-        #     df[col] - df[col].shift(6)
-        # )
-
-    # Food vs non-food inflation gap
-
-    if (
-        "food_inf" in df.columns and
-        "non_food_inf" in df.columns
-    ):
-
-        df["food_nonfood_inflation_gap"] = (
-            df["food_inf"] -
-            df["non_food_inf"]
-        )
 
     return df
 
@@ -234,25 +141,20 @@ def create_interest_rate_features(df):
     df = df.copy()
 
     rate_cols = [
-        "monetary_policy_rate",
-        "tbill",
-        "interbank_interest_rate",
-        "us_federal_fund_rate"
+      "monetary_policy_rate" ,
+      "tbill" ,
+      "interbank_interest_rate" ,
+      "us_federal_fund_rate"
     ]
 
-    for col in rate_cols:
+    for col in rate_cols :
 
-        if col not in df.columns:
-            continue
+      if col not in df.columns :
+        continue
 
-        df[f"{col}_change"] = df[col].diff()
-
-        df[f"{col}_3period_change"] = (
-            df[col] - df[col].shift(3)
-        )
-
-        df[f"{col}_6period_change"] = (
-            df[col] - df[col].shift(6)
+      for w in [8]:
+        df[ f"{col}_{w}period_change" ] = (
+          df[ col ] - df[ col ].shift( w)
         )
 
     # --------------------------------------------------------
@@ -264,45 +166,35 @@ def create_interest_rate_features(df):
         "monetary_policy_rate" in df.columns
     ):
 
-        df["tbill_policy_spread"] = (
-            df["tbill"] -
-            df["monetary_policy_rate"]
-        )
+        df["tbill_policy_spread"] = df["tbill"] -df["monetary_policy_rate"]
+
 
     # --------------------------------------------------------
     # Interbank vs policy rate
     # --------------------------------------------------------
 
-    if (
-        "interbank_interest_rate" in df.columns and
-        "monetary_policy_rate" in df.columns
-    ):
+    # if (
+    #     "interbank_interest_rate" in df.columns and
+    #     "tbill" in df.columns
+    # ):
+    #
+    #     df["interbank_policy_spread"] = df["interbank_interest_rate"] - df["tbill"]
 
-        df["interbank_policy_spread"] = (
-            df["interbank_interest_rate"] -
-            df["monetary_policy_rate"]
-        )
+
 
     # --------------------------------------------------------
     # Ghana-US interest rate differential
     # --------------------------------------------------------
 
-    if (
-        "monetary_policy_rate" in df.columns and
-        "us_federal_fund_rate" in df.columns
-    ):
-
-        df["ghana_us_rate_differential"] = (
-            df["monetary_policy_rate"] -
-            df["us_federal_fund_rate"]
-        )
-
-        df["ghana_us_rate_differential_change"] = (
-            df["ghana_us_rate_differential"].diff()
-        )
+    # if (
+    #     "monetary_policy_rate" in df.columns and
+    #     "us_federal_fund_rate" in df.columns
+    # ):
+    #
+    #     df["ghana_us_rate_differential"] =  df["monetary_policy_rate"] - df["us_federal_fund_rate"]
 
 
-
+        # df["ghana_us_rate_differential_change"] = df["ghana_us_rate_differential"].diff()
 
     return df
 
@@ -317,28 +209,12 @@ def create_reserve_features(df):
 
     col = "net_international_reserve"
 
-    if col not in df.columns:
-        return df
+    if col in df.columns:
 
-    # Changes over available periods
-    df["nir_change"] = df[col].diff()
+      # Changes over available periods
+      df["nir_momentum_8w"] =  df[col].pct_change(15)
+      #df[ 'nir_momentum_90d' ] = df[ col ].pct_change( 90 )
 
-    df["nir_change_30d"] = (
-        df[col] - df[col].shift(30)
-    )
-
-    # df["nir_change_60d"] = (
-    #     df[col] - df[col].shift(60)
-    # )
-
-    # Percentage changes
-    # df["nir_pct_change_30d"] = (
-    #     df[col] / df[col].shift(30) - 1
-    # )
-    #
-    # df["nir_pct_change_60d"] = (
-    #     df[col] / df[col].shift(60) - 1
-    # )
 
     return df
 
@@ -347,121 +223,44 @@ def create_reserve_features(df):
 # 7. GOLD FEATURES
 # ============================================================
 
-def create_gold_features(df):
-    df = df.copy()
-
-    price_col = "gold_close_price"
-    volume_col = "gold_volume"
-
-    if price_col not in df.columns :
-      return df
-
-    # ========================================================
-    # GOLD PRICE RETURNS
-    # ========================================================
-    df[ price_col ] = df[ price_col ].astype( str ).str.replace( ',' , '' , regex = False ).astype(
-      float )
-
-    df[ "gold_return_1d" ] = np.log(
-      df[ price_col ] / df[ price_col ].shift( 1 )
-    )
-
-    for window in [ 5 , 10 , 20 , 30 ] :
-      df[ f"gold_return_{window}d" ] = np.log(
-        df[ price_col ] /
-        df[ price_col ].shift( window )
-      )
-
-    # ========================================================
-    # GOLD PRICE VOLATILITY
-    # ========================================================
-
-    for window in [ 5 , 10 , 20 , 30 ] :
-      df[ f"gold_volatility_{window}d" ] = (
-        df[ "gold_return_1d" ]
-        .rolling( window )
-        .std()
-      )
-
-
-    # =======================================================
-    # GOLD VOLUME FEATURES
-    # =======================================================
-    df[ volume_col ] = df[ volume_col ].apply( convert_volume )
-
-    df[ "gold_volume_ma_20d" ] = (
-      df[ "gold_volume" ].rolling( 20 ).mean()
-    )
-
-    df[ "gold_relative_volume_20d" ] = np.log(
-      df[ "gold_volume" ] /
-      df[ "gold_volume_ma_20d" ]
-    )
-
-    df[ "gold_volume_ma_20d" ] =np.log(df[ "gold_volume_ma_20d" ])
-
-
+def create_commodity_features ( df: pd.DataFrame , price_col: str , volume_col: str , prefix: str ) -> pd.DataFrame :
+  df = df.copy()
+  if price_col not in df.columns :
     return df
 
+  # Raw returns and pure linear standard deviation (NO LOG VARIANCE PENALTY)
 
-# ============================================================
-# 8. CRUDE OIL FEATURES
-# ============================================================
+  df[ f"{prefix}_return_1w" ] = np.log(
+    df[ price_col ] / df[ price_col ].shift( 1 )
+  )
 
-def create_oil_features(df):
-    df = df.copy()
-
-    price_col = "crude_close_price"
-    volume_col = "crude_volume"
-
-    if price_col not in df.columns :
-      return df
-
-    # ========================================================
-    # CRUDE OIL PRICE RETURNS
-    # ========================================================
-    df[ price_col ] = df[ price_col ].astype( str ).str.replace( ',' , '' , regex = False ).astype(
-      float )
-
-    df[ "crude_return_1d" ] = np.log(
-      df[ price_col ] /
-      df[ price_col ].shift( 1 )
-    )
-
-    for window in [ 5 , 10 , 20 , 30 ] :
-      df[ f"crude_return_{window}d" ] = np.log(
-        df[ price_col ] /
-        df[ price_col ].shift( window )
-      )
-
-    # ========================================================
-    # CRUDE OIL VOLATILITY
-    # ========================================================
-
-    for window in [ 5 , 10 , 20 , 30 ] :
-      df[ f"crude_volatility_{window}d" ] = np.log(
-        df[ "crude_return_1d" ]
-        .rolling( window )
-        .std()
-      )
+  for w in [12]:
+    df[ f"{prefix}_return_{w}w" ] =np.log(
+    df[ price_col ] / df[ price_col ].shift( w )
+  )
 
 
-    # ======================================================
-    # CRUDE OIL VOLUME FEATURES
-    # ======================================================
-    df[ volume_col ] = df[ volume_col ].apply( convert_volume )
-    df[ "crude_volume_ma_20d" ] = (
-      df[ "crude_volume" ].rolling( 20 ).mean()
-    )
 
-    df[ "crude_relative_volume_20d" ] = np.log(
-      df[ "crude_volume" ] /
-      df[ "crude_volume_ma_20d" ]
-    )
 
-    df[ "crude_volume_ma_20d" ] = np.log( df[ "crude_volume_ma_20d" ] )
 
-    return df
+  return df
+
+
+
+def create_debt_features(df:pd.DataFrame ):
+  df = df.copy()
+  df['total_debt_to_gdp_change'] = df['total-public-debt-to-gdp'].diff(12)
+  # df['domestic_debt_to_gdp_change'] = df['domestic-debt-to-gdp'].diff(90)
+  external_share = df['external-debt-to-gdp'] / df['total-public-debt-to-gdp']
+  df['external_debt_share_change'] = external_share.diff( 8 )
+  # df['debt_composition_ratio'] =  external_change / domestic_change
+
+  # changed = df[ 'total-public-debt-to-gdp' ].diff().fillna( 0 ) != 0
+  # changed.iloc[ 0 ] = True
+  # df[ 'days_since_debt_update' ] = changed.cumsum().pipe( lambda g : df.groupby( g ).cumcount() )
+
+  return df
+
 
 
 # ============================================================
@@ -480,39 +279,61 @@ def create_shock_target (
   """
 
   df = df.copy()
-  price_col = "usdgh_exchange_rate"
-  start_horizon = 14
-  end_horizon = 28
-  shock_threshold = 0.03
 
   # Future horizons: +10, +11, ..., +20 trading days
   future_prices = pd.concat(
     {
-      h : df[ price_col ].shift( -h )
-      for h in range( start_horizon , end_horizon + 1 )
+      h : df[ FX_COL ].shift( -h )
+      for h in range( START_HORIZON , END_HORIZON + 1 )
     } ,
     axis = 1
   )
 
   # Maximum USD/GHS rate within the future prediction window
-  df[ "future_max_usdgh" ] = future_prices.max( axis = 1 )
+  future_max_usdgh = future_prices.max( axis = 1 )
 
   # Ensure the entire +10 to +20 window exists
   complete_window = future_prices.notna().all( axis = 1 )
 
   # Maximum future depreciation relative to today's USD/GHS
-  df[ "future_max_depreciation" ] = (
-                                      df[ "future_max_usdgh" ] / df[ price_col ]
-                                    ) - 1
+  future_max_depreciation = ( future_max_usdgh / df[ FX_COL ]) - 1
 
   # Binary shock target
   df[ "target_shock_window" ] = np.where(
     complete_window ,
-    (df[ "future_max_depreciation" ] >= shock_threshold).astype( int ) ,
+    (future_max_depreciation >= SHOCK_THRESHOLD).astype( int ) ,
     np.nan
   )
 
   return df
+
+
+# def define_shock_target( df:pd.DataFrame ) -> pd.DataFrame:
+#   df[ 'usd_gh_30ma' ] = df[ 'usdgh_exchange_rate' ].rolling( 30 ).mean()
+#   # calculating 5 days rolling depreciation relative to the 30 days moving average
+#   df[ 'percentage_rolling_depreciation_5d' ] = (df[ 'usdgh_exchange_rate' ] - df[ 'usd_gh_30ma' ].shift( 5 )) / df[
+#     'usd_gh_30ma' ].shift( 5 )
+#
+#   # calculating the possibility of a shock for historical data by checking if the 5 days rolling depreciation
+#   # percentage
+#   # is
+#   # greater that 5%
+#   df[ 'is_shock_occurring' ] = (df[ 'percentage_rolling_depreciation_5d' ] >= 0.03).astype( int )
+#
+#   # defining the target variable for forward-looking window. that is predicting if a shock will happen 2 to 4 weeks
+#   # ahead. Two weeks(14 days) and for weeks(28 days).
+#   window_start_days = 14  # 2 weeks
+#   window_end_days = 28  # 4 weeks
+#   window_len = window_end_days - window_start_days + 1  # 15
+#   df[ 'target_shock_window' ] = df[ 'is_shock_occurring' ].shift( -window_start_days ).rolling( window_len ,
+#                                                                                                 min_periods = window_len ).max().shift(
+#     -window_start_days )
+#   return df
+
+
+
+
+
 
 # ============================================================
 # 10. COMPLETE FEATURE ENGINEERING PIPELINE
@@ -522,43 +343,47 @@ def engineer_features(df:pd.DataFrame, output_file:str|Path,logger:Logger) -> pd
 
     df = prepare_data(df)
 
-    # FX
-    # df = create_fx_features(df)
+    df = df.resample( 'W' ).last()
 
-    # Inflation
+    # FX features
+    df = create_fx_features(df)
+
+    # Inflation features
     df = create_inflation_features(df)
-
-    # Interest rates
+    #
+    # # Interest rates features
     df = create_interest_rate_features(df)
 
-    # Reserves
+    # # Reserves features
     df = create_reserve_features(df)
 
-    # Gold
-    df = create_gold_features(df)
-
-    # Oil
-    df = create_oil_features(df)
+    # # commodity features
+    df = create_commodity_features( df , GOLD_CLOSE_PRICE_COL , GOLD_VOLUME_COL , "gold" )
+    df = create_commodity_features( df , CRUDE_CLOSE_PRICE_COL , CRUDE_VOLUME_COL , "oil" )
+    # df = create_debt_features(df)
 
     # Shock target
-    df = create_shock_target(df)
+    df = create_shock_target( df )
+
+
 
     features_to_drop = [ 'crude_volume' , 'gold_volume' , 'monetary_policy_rate' , 'us_federal_fund_rate' , 'tbill' ,
                          'interbank_interest_rate' , 'gold_close_price' , 'crude_close_price' ,
                            'usdgh_exchange_rate' ,
                          'net_international_reserve' , 'food_inf' , 'non_food_inf' ,
-                          'future_max_depreciation','future_max_usdgh' ]
+                          'future_max_depreciation','future_max_usdgh',
+                         'gold_volume_ma_20d','crude_volume_ma_20d',
+                         'is_shock_occurring','percentage_rolling_depreciation_5d','usd_gh_30ma',
+                         'domestic-debt-to-gdp','external-debt-to-gdp','total-public-debt-to-gdp']
 
-    df = df.drop( columns = features_to_drop )
-    df  = df.dropna()
+
+    df = df.drop( columns = [col for col in features_to_drop if col in df.columns] )
+    # df  = df.dropna()
+
     df = slice_data( start_date = "2010-01-01" , end_date = "2025-12-31" , data = df )
-    # Check for infinite values
-    inf_counts = np.isinf(
-      df.select_dtypes( include = np.number )
-    ).sum()
 
-    print( "Columns containing infinity:" )
-    print( inf_counts[ inf_counts > 0 ] )
+    df = df.dropna()
+
     save_to_csv( output_file = output_file , data = df , logger = logger , set_index = True )
 
     return df

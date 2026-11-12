@@ -1,17 +1,19 @@
 import pandas as pd
 
+from src.config.config import MAX_LAG_RANGE , MIN_LAG_RANGE
+
+
 def extract_feature_target( df:pd.DataFrame ):
   target_raw = df[ "target_shock_window" ]
   feature_raw = df.drop( columns = [ "target_shock_window" ] )
 
-  feature_lagged = feature_raw.copy()
+  lagged_columns = []
   for col in feature_raw.columns :
-    feature_lagged[ f'{col}_lag1' ] = feature_raw[ col ].shift( 1 )
-    feature_lagged[ f'{col}_lag2' ] = feature_raw[ col ].shift( 2 )
-    feature_lagged[ f'{col}_lag3' ] = feature_raw[ col ].shift( 3 )
-    feature_lagged[ f'{col}_lag4' ] = feature_raw[ col ].shift( 4 )
-    feature_lagged[ f'{col}_lag5' ] = feature_raw[ col ].shift( 5 )
+    for lag in range(MIN_LAG_RANGE, MAX_LAG_RANGE ):
+      lag_series = feature_raw[ col ].shift( lag ).rename( f"{col}_lag_{lag}" )
+      lagged_columns.append( lag_series )
 
+  feature_lagged = pd.concat( lagged_columns , axis = 1 )
   feature_xgb = feature_lagged.dropna()
   target_xgb = target_raw.loc[ feature_xgb.index ]
 

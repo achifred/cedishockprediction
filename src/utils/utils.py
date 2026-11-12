@@ -1,12 +1,19 @@
+import os
 from pathlib import Path
 from logging import Logger
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import csv
+import openpyxl as pyxl
+import re
+from sklearn.metrics import precision_recall_curve , roc_curve
 
 from src.config.config import COMBINED_DATASET_FILE , FORWARD_FILL_END , FORWARD_FILL_START , END_DATE , START_DATE
-from src.config.data_class import MacroEconomicParameters, NonMacroEconomicParameters, FileParameters
+from src.config.data_class import DebtToGdpParameters , MacroEconomicParameters , NonMacroEconomicParameters , \
+  FileParameters
 
+FAILED_DEBT_FILES = []
 
 def get_root_path():
     current_path = Path(__file__).resolve()
@@ -124,13 +131,6 @@ def transform_macro_economic_data_files(param:MacroEconomicParameters, logger:Lo
         logger.info(f"forward filling {param.file_path} data")
         align_point_in_time(macro_df = formatted_data,date_col = "date",availability_lag_days =param.lag_days,output_file = param.output_file, logger = logger)
         logger.info("calculating point in time done")
-
-        # forward_filled_data = forward_fill_data(raw_data= formatted_data, start=FORWARD_FILL_START, end=FORWARD_FILL_END, freq="D", index_column="date")
-        #
-        # lag_macro_economic_data_by_30_days(macro_data=forward_filled_data,
-        #                                    output_file=param.output_file, logger=logger)
-
-        logger.info(f"forward filling {param.file_path} data done")
     except Exception as e:
         raise e
 
@@ -244,7 +244,8 @@ def combine_file(non_macro_files:list[FileParameters], macro_files:list[FilePara
     for param in non_macro_files:
       source_file = get_path(param.file_path)
       df = pd.read_csv( source_file )
-      df = df[ param.columns_to_keep ]
+      if param.columns_to_keep is not None :
+        df = df[ param.columns_to_keep ]
 
       if param.columns_to_rename is not None :
         df = df.rename( columns = param.columns_to_rename)
@@ -281,6 +282,8 @@ def combine_file(non_macro_files:list[FileParameters], macro_files:list[FilePara
         direction = "backward"
       )
       combined_data = combined_data.drop( columns = [ "available_date" ] )
+      new_cols = [ c for c in macro.columns if c != 'available_date' and c != 'date' ]
+      combined_data[ new_cols ] = combined_data[ new_cols ].ffill()
       # combined_data = combined_data.reset_index( drop = True )
 
     logger.info( f"combined data: {combined_data.head()}" )
@@ -289,3 +292,320 @@ def combine_file(non_macro_files:list[FileParameters], macro_files:list[FilePara
     logger.info(f"combining {len(non_macro_files) + len(macro_files)} files done")
   except Exception as e:
     raise e
+
+
+
+def get_best_threshold(target_val, val_probability):
+  target_val_array = np.asarray( target_val ).astype( int )
+  val_probability_array = np.asarray( val_probability, dtype = float )
+  if target_val_array.shape != val_probability_array.shape :
+    raise ValueError( "target validation and validation probability must have the same shape" )
+
+  precision , recall , thresholds = precision_recall_curve( target_val , val_probability )
+  f1_scores = np.divide( 2 * (precision * recall) , (precision + recall) ,
+                         out = np.zeros_like( precision * recall ) , where = (precision + recall) != 0 )
+
+  index = np.argmin( f1_scores[:-1] )
+  trh = thresholds[index]
+
+  # target_recall = 0.7
+  # valid = recall[ :-1 ] >= target_recall
+  # if valid.any() :
+  #   best_index = np.where( valid )[ 0 ][ np.argmax( precision[ :-1 ][ valid ] ) ]
+  #   best_threshold = thresholds[ best_index ]
+  # else :
+  #   # no threshold reaches the target recall -- fall back to F1-best
+  #   best_index = np.argmax( f1_scores[ :-1 ] )
+  #   best_threshold = thresholds[ best_index ]
+
+  # false_positive_rates, true_positive_rates, thresholds = roc_curve(target_val_array, val_probability_array,
+  #                                                                   drop_intermediate = False)
+  # false_positive_rates = false_positive_rates[1:]
+  # true_positive_rates = true_positive_rates[1:]
+  # thresholds = thresholds[1:]
+  # youden_j_values = false_positive_rates  - true_positive_rates
+  # best_index  = int(np.argmax(youden_j_values))
+  # best_threshold = thresholds[best_index]
+
+  if trh > 0.5 :
+    trh = 0.5
+  return trh
+
+
+def parse_month_string ( cell_str ) :
+  """
+  Standardizes month strings into a consistent 'YYYY-Mon' format (e.g., '2017-Jan').
+  Handles variants like 'JAN-2017', 'JANUARY-2017', 'JAN-17', or 'JAN'.
+  """
+  cell_str = str(cell_str).upper().strip()
+  print(f"Processing cell_str: {cell_str}")
+
+  month_map = {
+    'JAN' : 'Jan' , 'FEB' : 'Feb' , 'MAR' : 'Mar' , 'APR' : 'Apr' , 'MAY' : 'May' , 'JUN' : 'Jun' ,
+    'JUL' : 'Jul' , 'AUG' : 'Aug' , 'SEP' : 'Sep' , 'OCT' : 'Oct' , 'NOV' : 'Nov' , 'DEC' : 'Dec' ,
+    'JANUARY' : 'Jan' , 'FEBRUARY' : 'Feb' , 'MARCH' : 'Mar' , 'APRIL' : 'Apr' , 'JUNE' : 'Jun' ,
+    'JULY' : 'Jul' , 'AUGUST' : 'Aug' , 'SEPTEMBER' : 'Sep' , 'OCTOBER' : 'Oct' , 'NOVEMBER' : 'Nov' ,
+    'DECEMBER' : 'Dec', 'SEPT' : 'Sep', '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun',
+        '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec',
+        '1': 'Jan', '2': 'Feb', '3': 'Mar', '4': 'Apr', '5': 'May', '6': 'Jun',
+        '7': 'Jul', '8': 'Aug', '9': 'Sep'
+  }
+
+  try:
+    iso_match = re.match( r'^(\d{4})-(\d{2})-(\d{2})' , cell_str )
+    if iso_match :
+      year , month_num = iso_match.group( 1 ) , iso_match.group( 2 )
+      return f"{year}-{month_map.get( month_num , 'Jan' )}"
+
+    # Try parsing 'MMM-YYYY' or 'MMM-YY'
+    parts = re.split( r'[-–—_ ]' , cell_str )
+
+    if len( parts ) == 2 :
+      part1 , part2 = parts[ 0 ] , parts[ 1 ]
+      if (part1 in month_map) and part2.isdigit() :
+        year = f"20{part2[ -2 : ]}" if len( part2 ) <= 3 else part2
+        return f"{year}-{month_map[ part1 ]}"
+      elif (part2 in month_map) and part1.isdigit() :
+        year = f"20{part1[ -2 : ]}" if len( part1 ) <= 3 else part1
+        return f"{year}-{month_map[ part2 ]}"
+
+    # Fallback to pure string if it's a lone name (e.g., 'JAN')
+    if cell_str in month_map :
+      return month_map[ cell_str ]
+
+    return cell_str
+
+  except Exception as e:
+    print(f"Error parsing month string '{cell_str}': {e}")
+    raise e
+
+def extract_from_file ( input_xlsx_path , default_year = None ) :
+  """
+  Parses and extracts monthly rows from a specific year's spreadsheet matrix.
+  """
+  if not os.path.exists( input_xlsx_path ) :
+    print( f"Warning: File '{input_xlsx_path}' not found. Skipping..." )
+    return [ ]
+
+  try :
+    workbook = pyxl.load_workbook( input_xlsx_path , data_only = True )
+    sheet = workbook.active
+
+  except Exception as e :
+    FAILED_DEBT_FILES.append(input_xlsx_path)
+    print( f"Error opening Excel file '{input_xlsx_path}': {e}" )
+    return [ ]
+
+  raw_months = [ ]
+  external_debt_gdp = [ ]
+  domestic_debt_gdp = [ ]
+  total_debt_gdp = [ ]
+
+
+
+  for row in sheet.iter_rows( values_only = True ) :
+    if not row or all( cell is None for cell in row ) :
+      continue
+
+    row_str_list = [ str( c ).upper().strip() for c in row if c is not None ]
+    row_str_raw = "".join( row_str_list )
+
+    # 1. Dynamically target the header calendar tracking row
+    if not raw_months:
+
+
+      has_iso = any( re.match( r'^\d{4}-\d{2}-\d{2}' , cell ) for cell in row_str_list )
+      has_text_month = any(
+        any( m in cell for m in [ 'JAN-' , 'FEB-' , 'MAR-' , 'JANUARY' ] ) for cell in row_str_list )
+
+      if has_iso or has_text_month :
+        # Grab standard data boundaries (Columns 2 to 13)
+        raw_months = [ cell for cell in row[ 1 :13 ] if cell is not None ]
+        continue
+    # 2. Extract relative target rows tracking key metrics (ignoring white spaces)
+    if 'GROSSEXTERNALDEBT/GDP*' in row_str_raw.replace( " " , "" ) or 'GROSSCGEXTERNALDEBT/GDP' in row_str_raw.replace( " " , "" ) :
+      external_debt_gdp = [  normalize_percentage_value(cell) for cell in row[ 1 :13 ] ]
+
+
+    elif 'GROSSDOMESTICDEBT/GDP*' in row_str_raw.replace( " " , "" ) or 'GROSSCGDOMESTICDEBT/GDP' in row_str_raw.replace( " " , "" ) :
+      domestic_debt_gdp = [  normalize_percentage_value(cell) for cell in row[ 1 :13 ] ]
+
+    elif 'GROSSPUBLICDEBT/GDP*' in row_str_raw.replace( " " , "" ) or 'GROSSTOTALCGDEBT/GDP' in row_str_raw.replace( " " , "" ):
+      total_debt_gdp = [  normalize_percentage_value(cell) for cell in row[ 1 :13 ] ]
+
+  # Collate parallel metrics into unified rows
+  records = [ ]
+
+  limit = min( len( raw_months ) , len( external_debt_gdp ) , len( domestic_debt_gdp ) , len( total_debt_gdp ) )
+
+  for i in range( limit ) :
+    raw_date = raw_months[ i ]
+    formatted_date = parse_month_string( raw_date )
+
+    # Stitch context year parameter if cells are missing specific year suffixes
+    if '-' not in formatted_date and default_year :
+      formatted_date = f"{default_year}-{formatted_date}"
+
+    records.append( [
+      formatted_date ,
+      external_debt_gdp[ i ] ,
+      domestic_debt_gdp[ i ] ,
+      total_debt_gdp[ i ]
+    ] )
+
+  return records
+
+
+def compile_raw_debt_to_gdp_data ( input_files: list[DebtToGdpParameters], output_file: str, logger: Logger ):
+  """
+  Loops through multiple sheet names, runs data consolidation routines,
+  and builds one centralized historical output file.
+  """
+  master_records = [ ]
+  output_csv_path = get_path( output_file )
+
+  for file_entry in input_files :
+    file_path = get_path(file_entry.file_path)
+    fall_back_year = file_entry.year
+
+    print( f"Reading: {file_path}..." )
+    file_data = extract_from_file( file_path , default_year = fall_back_year )
+    if file_data is not None :
+      master_records.extend( file_data )
+    else:
+      FAILED_DEBT_FILES.append( file_path )
+
+    print(f"failed files: {FAILED_DEBT_FILES}")
+
+  try :
+    if master_records is not None :
+      master_records.sort( key = lambda x : x[ 0 ] )
+
+      columns = [ 'date' , 'external-debt-to-gdp' , 'domestic-debt-to-gdp' , 'total-public-debt-to-gdp' ]
+      df = pd.DataFrame(master_records, columns=columns)
+      save_to_csv(data = df, output_file = output_csv_path, logger = logger )
+
+
+    if FAILED_DEBT_FILES is not None:
+      for file_path in FAILED_DEBT_FILES :
+        process_bog_and_append_debt_data( input_file = file_path , output_file = output_csv_path , logger = logger )
+
+  except Exception as e :
+    raise e
+
+def process_bog_and_append_debt_data ( input_file:str|Path, output_file:str|Path, logger:Logger ) :
+  """
+  Transforms horizontal monthly debt variables into a clean vertical format
+  using pandas, calculates total public debt, and appends to an output file.
+  """
+  input_csv_path = get_path( input_file )
+
+  # 1. Load the data into a DataFrame
+  df = pd.read_csv( input_csv_path )
+
+  # 2. Reshape columns (Jan-Dec) into vertical rows
+  # This turns columns into two fields: "variable" (the month name) and "value"
+  id_vars = [ "Year" , "Variables" ]
+  month_cols = [ "Jan" , "Feb" , "Mar" , "Apr" , "May" , "Jun" , "Jul" , "Aug" , "Sep" , "Oct" , "Nov" , "Dec" ]
+
+  df_melted = df.melt( id_vars = id_vars , value_vars = month_cols , var_name = "Month" , value_name = "Ratio" )
+
+  # 3. Clean strings and construct the required "Date" column (e.g., '2017-Jan')
+  df_melted[ "date" ] = df_melted[ "Year" ].astype( str ) + "-" + df_melted[ "Month" ]
+
+  # 4. Standardize row variables names to pivot them back cleanly into distinct columns
+  df_melted[ "Variables" ] = df_melted[ "Variables" ].str.lower()
+
+  # Filter or map variables into clean categories
+  def categorise_variable ( text ) :
+    if "external" in text : return "external-debt-to-gdp"
+    if "domestic" in text : return "domestic-debt-to-gdp"
+    return "other"
+
+  df_melted[ "Metric" ] = df_melted[ "Variables" ].apply( categorise_variable )
+  df_melted = df_melted[ df_melted[ "Metric" ] != "other" ]  # Drop unrecognized rows if any
+
+  # 5. Pivot 'external' and 'domestic' indicators from rows into side-by-side columns
+  df_pivoted = df_melted.pivot( index = "date" , columns = "Metric" , values = "Ratio" ).reset_index()
+
+  # Fill any empty missing fields with a zero baseline default value
+  df_pivoted = df_pivoted.fillna( 0.0 )
+
+  # 6. Calculate the dynamic total public debt column vector
+  df_pivoted[ "total-public-debt-to-gdp" ] = df_pivoted[ "external-debt-to-gdp" ] + df_pivoted[
+    "domestic-debt-to-gdp" ]
+
+
+  # Re-order the columns to match your exact requested structure
+  final_cols = [ "date" , "external-debt-to-gdp" , "domestic-debt-to-gdp" , "total-public-debt-to-gdp" ]
+  df = df_pivoted[ final_cols ]
+
+  # 8. Check file system state and save data securely
+  output_csv_path = get_path( output_file )
+  file_exists = output_csv_path.exists()
+
+  if file_exists :
+    try :
+      df_existing = pd.read_csv( output_csv_path )
+      # Gather a list of dates that have already been saved
+      existing_dates = df_existing[ "date" ].astype( str ).unique()
+
+      # Filter incoming rows: keep only records where 'Date' is NOT in existing_dates
+      df = df[ ~df[ "date" ].isin( existing_dates ) ]
+
+      # 7. Write remaining rows to disk if they pass the filter
+      if df.empty :
+        print( "⏭️ No new records found. All processed rows already exist in the database." )
+
+      df.to_csv( output_csv_path , mode = 'a' , index = False , header = not file_exists )
+
+    except Exception as e :
+      raise e
+
+def normalize_percentage_value ( val ) :
+  """
+   ensures whole percentages are logged correctly.
+  Converts decimal representation (e.g., 0.453) to whole percentages (e.g., 45.3),
+  but leaves raw whole values (e.g., 53.0) unmanipulated.
+  """
+  if val is None :
+    return 0.0
+  try :
+    float_val = float( val )
+    # If value is written as a fractional decimal ratio (less than 1.0), scale up to %
+    if 0.0 < float_val < 1.0 :
+      return round( float_val * 100 , 2 )
+    return round( float_val , 2 )
+  except ValueError :
+    return 0.0
+
+
+
+def lag_debt_to_gdp_data(input_file:str, output_file:str, logger:Logger):
+  try:
+
+    df = pd.read_csv( get_path( input_file ) )
+    df['date'] = pd.to_datetime( df['date'], format = "%Y-%b"   )
+    align_point_in_time(macro_df = df, date_col = 'date',availability_lag_days = 90,output_file = output_file, logger = logger )
+    logger.info('lagging debt-to-gdp data done')
+
+  except Exception as e :
+    raise e
+
+def get_correlation_matrix ( df: pd.DataFrame ) :
+  try :
+    feature_cols = list(df.drop( columns = [ "target_shock_window" ] ).columns)
+    correlation_matrix = df.corr()
+    strong_correlation = correlation_matrix.unstack()
+    strong_pairs = strong_correlation[ (abs( strong_correlation ) > 0.8) & (strong_correlation != 1) ]
+    print( f"strongly correlated features: {strong_pairs}" )
+
+    # correlations = df[
+    #   feature_cols + [ 'target_shock_window' ]
+    #   ].corr()[ 'target_shock_window' ].sort_values(
+    #   ascending = False
+    # )
+    # print(f"correlation matrix: {correlations}")
+
+  except Exception as e :
+    print( e )

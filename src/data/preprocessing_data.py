@@ -1,11 +1,31 @@
-from src.config.file_config import FORMATTED_MACRO_DATA_FILES_CONFIG , FORMATTED_NON_MACRO_DATA_FILES_CONFIG
-from src.utils.utils import combine_file , transform_macro_economic_data_files , transform_non_macro_economic_data , \
-  combine_files
-from src.config.file_config import MACRO_ECONOMIC_DATA_FILES_CONFIG, NON_MACRO_ECONOMIC_DATA_FILES_CONFIG,COMBINE_DATA_FILES_CONFIG
+from src.config.config import RAW_DEBT_TO_GDP_DATA_FILE
+from src.config.file_config import (FORMATTED_MACRO_DATA_FILES_CONFIG , FORMATTED_NON_MACRO_DATA_FILES_CONFIG,
+                                    DEBT_TO_GDP_DATA_FILES_CONFIG,MACRO_ECONOMIC_DATA_FILES_CONFIG, NON_MACRO_ECONOMIC_DATA_FILES_CONFIG)
+from src.utils.utils import combine_file , compile_raw_debt_to_gdp_data , transform_macro_economic_data_files , \
+  transform_non_macro_economic_data,lag_debt_to_gdp_data
+
 from src.config.looger_config import get_logger
-from src.config.data_class import FileParameters , MacroEconomicParameters , NonMacroEconomicParameters
+from src.config.data_class import DebtToGdpParameters , FileParameters , MacroEconomicParameters , \
+  NonMacroEconomicParameters
+
 
 logger = get_logger(name=__name__, log_file="preprocessing_data.log")
+RAW_DEBT_TO_GDP_DATA_FILE = 'data/raw/debt_to_gdp_data.csv'
+FORMATTED_DEBT_TO_GDP_DATA_FILES_CONFIG = 'data/interim/formatted_debt_to_gdp.csv'
+
+def extract_debt_to_gdp_data():
+    gdp_data_files: list[DebtToGdpParameters] = []
+    try:
+        logger.info("extracting debt to gdp data")
+        for data in DEBT_TO_GDP_DATA_FILES_CONFIG:
+            gdp_data_files.append(DebtToGdpParameters(file_path=data["file_path"], year=data["year"]))
+        compile_raw_debt_to_gdp_data(input_files = gdp_data_files, output_file = RAW_DEBT_TO_GDP_DATA_FILE, logger = logger)
+
+
+
+        logger.info("extracting debt to gdp data done")
+    except Exception as e:
+        logger.exception(f"sorry something went wrong: {e}")
 
 def format_macro_economic_historical_data():
     try:
@@ -74,6 +94,9 @@ def combine_file_to_one_dataset():
 
 
 if __name__ == "__main__":
+   extract_debt_to_gdp_data()
+   lag_debt_to_gdp_data(input_file = RAW_DEBT_TO_GDP_DATA_FILE, output_file = FORMATTED_DEBT_TO_GDP_DATA_FILES_CONFIG,
+                        logger = logger)
    format_macro_economic_historical_data()
    format_non_macro_economic_historical_data()
    combine_file_to_one_dataset()

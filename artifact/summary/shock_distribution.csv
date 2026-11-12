@@ -1,0 +1,4 @@
+class,target_value,count,percentage_of_labelled_rows,percentage_of_all_rows
+Non-shock,0.0,669,80.12,80.12
+Shock,1.0,166,19.88,19.88
+Incomplete / missing target,,0,,0.0

@@ -1,3 +1,4 @@
+import zipfile
 from logging import Logger
 from pathlib import Path
 
@@ -5,14 +6,15 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 import joblib
-from sklearn.metrics import auc , classification_report , precision_recall_curve , roc_auc_score
+from sklearn.metrics import auc , average_precision_score , brier_score_loss , classification_report , \
+  precision_recall_curve , \
+  roc_auc_score
 
-from src.config.config import LSTM_CLASSIFICATION_REPORTS_FILE , LSTM_PREDICTION_FILE
+from src.config.config import BEST_LSTM_THRESHOLD_FILE , LSTM_CLASSIFICATION_REPORTS_FILE , LSTM_TEST_PREDICTION_FILE , \
+  TEST_TIMELINE_START
 from src.config.data_class import LstmEvaluationParameters
-from src.utils.utils import save_to_csv
+from src.utils.utils import save_to_csv , get_path
 from src.models.lstm_model.lstm_helper import create_3d_sequence, permutation_importance_lstm
-
-
 
 
 def predict_lstm_model(data:pd.DataFrame, model_path:Path, scaler_path:Path, logger:Logger):
@@ -22,7 +24,7 @@ def predict_lstm_model(data:pd.DataFrame, model_path:Path, scaler_path:Path, log
 
     # define timeline for test data
     logger.info("defining test data timeline")
-    test_df_buffer =  df.loc['2024-11-15':'2025-12-31']
+    test_df_buffer =  df.loc['2023-08-31':'2025-12-31']
     print( f"test shock window count: {test_df_buffer[ 'target_shock_window' ].sum()}" )
     target_test_raw = test_df_buffer['target_shock_window'].values
     feature_test_raw = test_df_buffer.drop(columns=['target_shock_window']).values
@@ -41,11 +43,13 @@ def predict_lstm_model(data:pd.DataFrame, model_path:Path, scaler_path:Path, log
       logger = logger
     )
 
+
     # test_dates_aligned = test_df_buffer.index[30:]
-    evaluation_mask = test_dates >= pd.Timestamp('2025-01-01')
+    evaluation_mask = test_dates >= pd.Timestamp(TEST_TIMELINE_START)
     feature_test_final = feature_test_3d[evaluation_mask]
     target_test_final = target_test[evaluation_mask]
     dates_final = test_dates[evaluation_mask]
+
 
 
     logger.info("loading saved LSTM model")
@@ -55,7 +59,12 @@ def predict_lstm_model(data:pd.DataFrame, model_path:Path, scaler_path:Path, log
 
     logger.info("predicting LSTM model")
     target_probabilities = loaded_lstm_model.predict(feature_test_final).flatten()
-    target_predictions = (target_probabilities >= 0.50).astype(int)
+
+
+    best_threshold = pd.read_csv( get_path(BEST_LSTM_THRESHOLD_FILE) )["threshold"].iloc[0]
+    print( f"📈 Mathematically optimized shock threshold found at: {best_threshold:.4f}" )
+
+    target_predictions = (target_probabilities >= best_threshold).astype(int)
 
 
     logger.info("predicting LSTM model done")
@@ -81,7 +90,7 @@ def evaluate_lstm_model(evaluation_param:LstmEvaluationParameters, logger:Logger
 
     logger.info("generating model performance reports ")
     precision , recall , _ = precision_recall_curve( target_test_final , target_probabilities )
-    pr_auc_score = auc( recall , precision )
+    pr_auc_score = average_precision_score( target_test_final , target_probabilities )
 
     classification_reports = classification_report( target_test_final , target_predictions ,
                                                     target_names = [ 'safe window(0)' ,
@@ -100,15 +109,17 @@ def evaluate_lstm_model(evaluation_param:LstmEvaluationParameters, logger:Logger
     logger.info( f"auc: {pr_auc_score:.4f}" )
     save_to_csv( data = lstm_reports , output_file = LSTM_CLASSIFICATION_REPORTS_FILE, logger = logger )
 
+    logger.info(f"lstm brier score: {brier_score_loss( target_test_final , target_probabilities )}")
+
     logger.info("saving LSTM model prediction results ")
     prediction_result = pd.DataFrame( {
       "actual_shock_window" : target_test_final ,
-      "predicted_shock_probability" : target_probabilities ,
-      "ews_binary_alert" : target_predictions
-    }, index = dates_final)
+      "lstm_shock_probability" : target_probabilities ,
+      "lstm_binary_alert" : target_predictions
+    }, index = pd.DatetimeIndex(dates_final, name = 'date') )
 
-    save_to_csv( data = prediction_result , output_file = LSTM_PREDICTION_FILE ,
-                 logger = logger )
+    save_to_csv( data = prediction_result , output_file = LSTM_TEST_PREDICTION_FILE ,
+                 logger = logger , set_index = True )
     logger.info("saving LSTM model prediction results done")
 
   except Exception as e:

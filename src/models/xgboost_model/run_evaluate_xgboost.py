@@ -2,7 +2,7 @@ import pandas as pd
 from src.utils.utils import get_path
 from src.config.looger_config import get_logger
 from src.models.xgboost_model.evaluate import predict_xgboost, evaluate_xgboost
-from src.config.config import USDGH_DATASET_FILE, XGBOOST_MODEL_FILE, XGBOOST_SAVED_COLUMNS_FILE
+from src.config.config import USDGH_DATASET_FILE, XGBOOST_MODEL_FILE, XGBOOST_SAVED_COLUMNS_FILE, USDGH_DATASET_LSTM_FILE
 
 logger = get_logger( name = __name__ , log_file = "xgboost_model.log" )
 
@@ -21,7 +21,7 @@ def run_evaluate_xgboost(df: pd.DataFrame):
     )
 
   except Exception as e:
-    logger.error(f"something went wrong: {e}")
+    raise e
 
 if __name__ == "__main__":
 
@@ -31,4 +31,4 @@ if __name__ == "__main__":
     run_evaluate_xgboost(df = data)
 
   except Exception as e:
-    logger.error(f"something went wrong: {e}")
+    logger.exception(f"something went wrong: {e}")

@@ -38,7 +38,6 @@ class LstmEvaluationParameters:
 
 @dataclass
 class XGBoostEvaluationParameters:
-  target_prediction:Any
   target_probability:Any
   target_test:Any
   feature_importance:Any
@@ -57,5 +56,13 @@ class LSTMTrainingParameters:
   feature_train_3d:Any
   target_train:Any
   feature_validation_3d:Any
+  validation_dates: Any
   target_validation:Any
   model_output_path: Path
+  feature_names:Any
+
+
+@dataclass
+class DebtToGdpParameters:
+    file_path:str
+    year:str

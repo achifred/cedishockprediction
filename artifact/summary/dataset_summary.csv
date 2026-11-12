@@ -1,0 +1,13 @@
+metric,value
+input_rows,835
+date_start,2010-01-03
+date_end,2025-12-28
+rows_with_invalid_or_missing_date,0
+number_of_columns_including_date_and_target,16
+number_of_predictor_columns,14
+labelled_rows,835
+incomplete_or_missing_target_rows,0
+shock_count,166
+non_shock_count,669
+shock_rate_among_labelled_pct,19.88
+non_shock_rate_among_labelled_pct,80.12

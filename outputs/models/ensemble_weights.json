@@ -1,0 +1,6 @@
+{
+    "xgb_weight": 1.0,
+    "lstm_weight": 0.0,
+    "selection_metric": "PR_AUC",
+    "threshold": 0.5
+}

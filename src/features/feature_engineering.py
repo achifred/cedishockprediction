@@ -1,3 +1,5 @@
+from logging import Logger
+
 import pandas as pd
 import numpy as np
 
@@ -6,13 +8,11 @@ from src.config.looger_config import get_logger
 from src.utils.utils import convert_volume , get_path
 from src.utils.utils import save_to_csv, slice_data
 
-logger = get_logger(name = __name__, log_file = "feature_engineering.log")
+# logger = get_logger(name = __name__, log_file = "feature_engineering.log")
 
-def feature_engineer_data(file_path:str, output_file:str):
+def feature_engineer_data(df: pd.DataFrame, output_file: str, logger: Logger):
 
   try:
-    source_file = get_path(file_path)
-    df = pd.read_csv(source_file)
 
     df['date'] = pd.to_datetime(df['date'])
     df.set_index('date', inplace=True)
@@ -123,8 +123,10 @@ def feature_engineer_data(file_path:str, output_file:str):
                         'interbank_mpr_spread','global_rate_gap']
 
     df = df.drop(columns = features_to_drop)
-    # df = df.dropna()
+    df = df.dropna()
     df = slice_data(start_date = "2010-01-01", end_date = "2025-12-31", data = df)
+    df = df.resample( 'W-FRI' ).last()
+    df = df.dropna()
     save_to_csv(output_file = output_file, data = df, logger = logger, set_index = True)
     return df
 
@@ -133,24 +135,7 @@ def feature_engineer_data(file_path:str, output_file:str):
 
 
 
-def get_correlation_matrix(df:pd.DataFrame):
-    try:
-      feature_cols = list(df.drop( columns = [ "target_shock_window" ] ).columns)
-      correlation_matrix = df.corr()
-      strong_correlation = correlation_matrix.unstack()
-      strong_pairs = strong_correlation[(abs(strong_correlation) > 0.8) & (strong_correlation !=1)]
-      print(f"strongly correlated features: {strong_pairs}")
 
-
-      # correlations = df[
-      #   feature_cols + [ 'target_shock_window' ]
-      #   ].corr()[ 'target_shock_window' ].sort_values(
-      #   ascending = False
-      # )
-      # print(f"correlation matrix: {correlations}")
-
-    except Exception as e:
-      print(e)
 
 
 def get_range(df:pd.DataFrame):
